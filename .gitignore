@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# CMake common folder
+build/
+
+# VSCode, just in case
+.vscode/
