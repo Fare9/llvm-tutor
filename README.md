@@ -955,6 +955,123 @@ difference is calculated. If this absolute difference is less than the value of
 the machine epsilon, the original two floating-point values are considered to
 be equal.
 
+## Control Flow Flattening
+
+**Control Flow Flattening** is a pass that will transform functions from a module, destroying its previous control flow graph and created a flat one based on a dispatcher variable and a dispatcher block that will jump to the correct basic block to execute.
+
+We can use two different inputs from two different folders, [input_for_cff_1.c](inputs/input_for_cff_1.c) and [input_for_cff_2.c](inputs/input_for_cff_2.c) from `inputs` folder, or [input_for_cff_1.ll](test/input_for_cff_1.ll) and [input_for_cff_2.ll](test/input_for_cff_2.ll) from `test` folder which are a compiled IR version from the `.c` files. In case of using the first files, compilation must be done with clang, in case of using the second, it is possible using directly `opt` tool.
+
+### Run the pass
+
+Here we will use for the example [input_for_cff_1.ll](test/input_for_cff_1.ll).
+
+```bash
+export LLVM_DIR=<installation/dir/of/llvm/16>
+$LLVM_DIR/bin/opt -S -load-pass-plugin build/lib/libControlFlowFlattening.so \
+-passes="control-flow-flattening" test/input_for_cff_1.ll \
+-o test/output_for_cff_1.ll
+...
+```
+
+Running the pass will provide us with the transformation from one IR to the modified one, but we can also see the outputs from the files. In our example, the first IR without the pass is the next one (only the obfuscated function):
+
+```llvm
+define dso_local void @simple_branch(i32 noundef %value) #0 {
+entry:
+  %value.addr = alloca i32, align 4
+  store i32 %value, ptr %value.addr, align 4
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str)
+  %0 = load i32, ptr %value.addr, align 4
+  %cmp = icmp sgt i32 %0, 5
+  br i1 %cmp, label %if.then, label %if.else
+
+if.then:                                          ; preds = %entry
+  %call1 = call i32 (ptr, ...) @printf(ptr noundef @.str.1)
+  br label %if.end
+
+if.else:                                          ; preds = %entry
+  %call2 = call i32 (ptr, ...) @printf(ptr noundef @.str.2)
+  br label %if.end
+
+if.end:                                           ; preds = %if.else, %if.then
+  %call3 = call i32 (ptr, ...) @printf(ptr noundef @.str.3)
+  ret void
+}
+```
+
+The previous code just shows an `if-else` structure in the code, that would be translated to a CFG with 4 nodes, initial one, one for each part of the `if-else` structure, and a join node for the `if.end`. If we run the pass on this function, we obtain the next IR:
+
+```llvm
+define dso_local void @simple_branch(i32 noundef %value) #0 {
+  %dispatch_var = alloca i32, align 4
+  store i32 4097, ptr %dispatch_var, align 4
+  %value.addr = alloca i32, align 4
+  store i32 %value, ptr %value.addr, align 4
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str)
+  %1 = load i32, ptr %value.addr, align 4
+  %cmp = icmp sgt i32 %1, 5
+  br label %dispatch_block
+
+dispatch_block:                                   ; preds = %10, %11, %13, %12, %0
+  %dispatch_var4 = load i32, ptr %dispatch_var, align 4
+  %2 = icmp eq i32 4101, %dispatch_var4
+  br i1 %2, label %if.else, label %3
+
+3:                                                ; preds = %dispatch_block
+  %dispatch_var3 = load i32, ptr %dispatch_var, align 4
+  %4 = icmp eq i32 4100, %dispatch_var3
+  br i1 %4, label %if.then, label %5
+
+5:                                                ; preds = %3
+  %dispatch_var2 = load i32, ptr %dispatch_var, align 4
+  %6 = icmp eq i32 4099, %dispatch_var2
+  br i1 %6, label %if.end, label %7
+
+7:                                                ; preds = %5
+  %dispatch_var1 = load i32, ptr %dispatch_var, align 4
+  %8 = icmp eq i32 4098, %dispatch_var1
+  br i1 %8, label %if.end, label %9
+
+9:                                                ; preds = %7
+  br label %entry
+
+entry:                                            ; preds = %9
+  br i1 %cmp, label %11, label %10
+
+10:                                               ; preds = %entry
+  store i32 4101, ptr %dispatch_var, align 4
+  br label %dispatch_block
+
+11:                                               ; preds = %entry
+  store i32 4100, ptr %dispatch_var, align 4
+  br label %dispatch_block
+
+if.then:                                          ; preds = %3
+  %call1 = call i32 (ptr, ...) @printf(ptr noundef @.str.1)
+  br label %12
+
+12:                                               ; preds = %if.then
+  store i32 4098, ptr %dispatch_var, align 4
+  br label %dispatch_block
+
+if.else:                                          ; preds = %dispatch_block
+  %call2 = call i32 (ptr, ...) @printf(ptr noundef @.str.2)
+  br label %13
+
+13:                                               ; preds = %if.else
+  store i32 4099, ptr %dispatch_var, align 4
+  br label %dispatch_block
+
+if.end:                                           ; preds = %5, %7
+  %call3 = call i32 (ptr, ...) @printf(ptr noundef @.str.3)
+  ret void
+}
+```
+
+Previous CFG has been converted into a dispatcher code that will base the execution of the function on a given variable that will be set after each execution of a real node.
+
+Original idea from the pass: https://www.lodsb.com/control-flow-flattening-how-to-build-your-own
+
 Debugging
 ==========
 Before running a debugger, you may want to analyze the output from
