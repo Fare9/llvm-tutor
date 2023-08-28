@@ -12,6 +12,7 @@ set(LLVM_TUTOR_PLUGINS
     DuplicateBB
     OpcodeCounter
     MergeBB
+    ControlFlowFlattening
     )
 
 set(StaticCallCounter_SOURCES
@@ -38,6 +39,8 @@ set(OpcodeCounter_SOURCES
   OpcodeCounter.cpp)
 set(MergeBB_SOURCES
   MergeBB.cpp)
+set(ControlFlowFlattening_SOURCES
+  ControlFlowFlattening.cpp)
 
 # CONFIGURE THE PLUGIN LIBRARIES
 # ==============================
